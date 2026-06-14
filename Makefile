@@ -1,5 +1,5 @@
 NAME     := ct2stimer
-VERSION  := v0.2.0
+VERSION  := v0.2.1
 REVISION := $(shell git rev-parse --short HEAD)
 
 SRCS      := $(shell find . -type f -name '*.go')
@@ -10,38 +10,38 @@ DIST_DIRS := find * -type d -exec
 
 .DEFAULT_GOAL := bin/$(NAME)
 
+# Templates are compiled into the binary via //go:embed, so a changed template
+# is just another build input -- no code-generation step is required.
 bin/$(NAME): $(SRCS) $(TEMPLATES)
-	$(MAKE) generate
 	go build $(LDFLAGS) -o bin/$(NAME)
 
-.PHONY: ci-test
-ci-test:
-	echo "" > coverage.txt
-	for d in `glide novendor`; do \
-		go test -coverprofile=profile.out -covermode=atomic -v $$d || break;  \
-		if [ -f profile.out ]; then \
-			cat profile.out >> coverage.txt; \
-			rm profile.out; \
-		fi; \
-	done
+.PHONY: deps
+deps:
+	go mod download
+
+.PHONY: test
+test:
+	go test -cover -race -v ./...
+
+.PHONY: vet
+vet:
+	go vet ./...
+
+.PHONY: fmt
+fmt:
+	gofmt -w .
 
 .PHONY: clean
 clean:
-	rm -rf bin/*
-	rm -rf vendor/*
+	rm -rf bin/* dist/*
 
 .PHONY: cross-build
-cross-build: generate
+cross-build:
 	for os in linux; do \
 		for arch in amd64 386; do \
 			GOOS=$$os GOARCH=$$arch go build -a -tags netgo -installsuffix netgo $(LDFLAGS) -o dist/$$os-$$arch/$(NAME); \
 		done; \
 	done
-
-.PHONY: deps
-deps: glide
-	go get -u github.com/jteeuwen/go-bindata/...
-	glide install
 
 .PHONY: dist
 dist:
@@ -52,24 +52,6 @@ dist:
 	$(DIST_DIRS) zip -r $(NAME)-$(VERSION)-{}.zip {} \; && \
 	cd ..
 
-.PHONY: generate
-generate: $(TEMPLATES)
-	go generate -x ./...
-
-.PHONY: glide
-glide:
-ifeq ($(shell command -v glide 2> /dev/null),)
-	curl https://glide.sh/get | sh
-endif
-
 .PHONY: install
 install:
 	go install $(LDFLAGS)
-
-.PHONY: test
-test: generate
-	go test -cover -race -v `glide novendor`
-
-.PHONY: update-deps
-update-deps: glide
-	glide update

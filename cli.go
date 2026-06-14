@@ -36,7 +36,7 @@ func parseArgs(args []string) error {
 	f.StringVar(&opts.after, "after", "", "unit dependencies (After=)")
 	f.BoolVar(&opts.delete, "delete", false, "delete unused unit files")
 	f.BoolVar(&opts.dryRun, "dry-run", false, "dry run")
-	f.StringVarP(&opts.filename, "file", "f", crontab.DefaultCrontabFilename, "crontab file")
+	f.StringVarP(&opts.filename, "file", "f", "", "crontab file to read (required)")
 	f.StringVar(&opts.nameRegexp, "name-regexp", "", "regexp to extract scheduler name from crontab")
 	f.StringVarP(&opts.outdir, "outdir", "o", systemd.DefaultUnitsDirectory, "directory to save systemd files")
 	f.BoolVar(&opts.reload, "reload", false, "reload & start genreated timers")
@@ -50,7 +50,11 @@ func parseArgs(args []string) error {
 	}
 
 	if opts.filename == "" {
-		return errors.New("crontab file is required")
+		fmt.Fprintln(os.Stderr, "Usage: ct2stimer -f FILE [options]")
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "Flags:")
+		f.PrintDefaults()
+		return errors.New("no crontab file specified: pass -f/--file FILE")
 	}
 
 	if opts.outdir == "" {
@@ -85,10 +89,14 @@ func run(args []string) int {
 		return exitCodeError
 	}
 
-	schedules, err := crontab.Parse(string(body))
+	schedules, warnings, err := crontab.Parse(string(body))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return exitCodeError
+	}
+
+	for _, w := range warnings {
+		fmt.Fprintln(os.Stderr, "warning: "+w)
 	}
 
 	var re *regexp.Regexp
@@ -146,7 +154,14 @@ func run(args []string) int {
 			}
 		}
 
-		timer, err := systemd.GenerateTimer(name, calendar)
+		// A pinned RunSecond is only honoured if AccuracySec is tightened from
+		// its 1min default, so enable it alongside the second-level OnCalendar.
+		accuracySec := ""
+		if schedule.Config.RunSecond != nil {
+			accuracySec = "1s"
+		}
+
+		timer, err := systemd.GenerateTimer(name, calendar, accuracySec)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return exitCodeError

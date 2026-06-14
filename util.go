@@ -67,6 +67,12 @@ func deleteUnusedUnits(outdir string, scMap map[string]*crontab.Schedule) ([]str
 }
 
 func getScheduleName(schedule *crontab.Schedule, re *regexp.Regexp) string {
+	// An explicit TimerName from a "# config:" comment wins over the regexp and
+	// the hashed fallback.
+	if schedule.Config.TimerName != "" {
+		return schedule.Config.TimerName
+	}
+
 	name := schedule.NameByRegexp(re)
 	if name == "" {
 		name = "cron-" + schedule.SHA256Sum()[0:12]

@@ -64,9 +64,36 @@ Description=ct2stimer timer unit
 
 [Timer]
 OnCalendar=30 * * * *
+
+[Install]
+WantedBy=timers.target
 `
 
-	got, err := GenerateTimer(name, cronspec)
+	got, err := GenerateTimer(name, cronspec, "")
+	if err != nil {
+		t.Errorf("Error should not be raised. error: %s", err)
+	}
+
+	if got != expected {
+		t.Errorf("Timer does not match.\n\nexpected:\n%s\n\ngot:\n%s", expected, got)
+	}
+}
+
+func TestGenerateTimerWithAccuracy(t *testing.T) {
+	name := "ct2stimer"
+	cronspec := "*:0,5,10,15,20,25,30,35,40,45,50,55:30"
+	expected := `[Unit]
+Description=ct2stimer timer unit
+
+[Timer]
+OnCalendar=*:0,5,10,15,20,25,30,35,40,45,50,55:30
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
+`
+
+	got, err := GenerateTimer(name, cronspec, "1s")
 	if err != nil {
 		t.Errorf("Error should not be raised. error: %s", err)
 	}

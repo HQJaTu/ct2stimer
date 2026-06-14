@@ -1,7 +1,6 @@
 # ct2stimer
 
-[![Build Status](https://travis-ci.org/dtan4/ct2stimer.svg?branch=master)](https://travis-ci.org/dtan4/ct2stimer)
-[![codecov](https://codecov.io/gh/dtan4/ct2stimer/branch/master/graph/badge.svg)](https://codecov.io/gh/dtan4/ct2stimer)
+[![CI](https://github.com/HQJaTu/ct2stimer/actions/workflows/ci.yml/badge.svg)](https://github.com/HQJaTu/ct2stimer/actions/workflows/ci.yml)
 
 Convert crontab to systemd timer
 
@@ -24,22 +23,45 @@ Pass --all to see loaded but inactive timers, too.
 
 ## Installation
 
+### Manually
+
+There mostly isn't an installation.
+
+`cp bin/ct2stimer /usr/local/bin/`
+
+Is the closest that I can think of.
+
+### Packaging
+
 TBD
 
 ## Usage
 
-ct2stimer reads crontab file at `/etc/crontab` by default. You can specify crontab file with `-f FILE` flag.
+ct2stimer reads the crontab file given by the `-f FILE` flag. The flag is required;
+running without it prints usage and exits.
+(It deliberately does **not** read `/etc/crontab` by default — that is a system crontab with a different format.)
 
-systemd unit file are saved at `/run/systemd/system` by default. You can specify save directory with `-o OUTDIR` flag.
+Blank lines, comments and environment-variable assignments (`SHELL=`, `PATH=`, `MAILTO=`, ...) are ignored,
+and both standard 5-field specs and `@` descriptors (`@daily`, `@hourly`, ...) are supported.
+
+systemd unit file are saved at `/run/systemd/system` by default. This is important!
+On a typical Linux `/run/` is a tmpfs (a RAMdisk) that won't survive a reboot.
+
+You can specify save directory with `-o OUTDIR` flag.
+To persist a reboot, suggested output directories are: 
+- system as root: `/etc/systemd/system`
+- user as non-root: `~/.config/systemd/user/`
+  - Enable [lingering](https://www.freedesktop.org/software/systemd/man/latest/loginctl.html), if you want timers to trigger also when not logged in
 
 ```bash
-$ ct2stimer
+$ ct2stimer -f sample.cron
 $ ct2stimer -f sample.cron -o unitfiles
 ```
 
 ### Reload systemd and start all timers automatically
 
-If `--reload` is provided, ct2stimer reloads systemd unit files (= `systemctl daemon-reload`) and starts all generated timers (= `systemctl start foo.timer`). Maybe `sudo` is required to execute.
+If `--reload` is provided, ct2stimer reloads systemd unit files (= `systemctl daemon-reload`) and
+starts all generated timers (= `systemctl start foo.timer`). Maybe `sudo` is required to execute.
 
 ```bash
 $ sudo ct2stimer -f sample.cron --reload
@@ -51,11 +73,48 @@ As you know, crontab does not have the concept of "task name". However, task nam
 You can extract task name from original command using regular expression. `--name-regexp REGEXP` flag is used for this.
 Regular expression must have one [capturing group](http://www.regular-expressions.info/brackets.html).
 
-If regular expression is not provided or command does not match to the given regular expression, hash value, which is calculated from command, is used for unit name.
+If regular expression is not provided or command does not match to the given regular expression, hash value,
+which is calculated from command, is used for unit name.
 
 ```bash
 $ ct2stimer -f sample.cron --name-regexp '--name ([a-zA-Z0-9_-]+)'
 ```
+
+### Per-entry configuration (`# config:` comments)
+
+Standard crontab has only minute resolution and no concept of a job name. Rather
+than extend cron syntax, ct2stimer reads an optional `# config:` comment placed
+above an entry. The configuration applies to the next schedule entry (blank lines
+and ordinary comments in between are tolerated).
+
+```cron
+# config: TimerName=db-backup RunSecond=30
+*/5 * * * * /usr/local/bin/backup
+```
+
+Supported keys:
+
+| Key | Meaning |
+|-----|---------|
+| `TimerName` | Unit name for this entry. Takes precedence over `--name-regexp` and the hashed fallback. Allowed characters: letters, digits, `.`, `_`, `-`. |
+| `RunSecond` | Second-of-the-minute (`0`–`59`) at which the timer fires. |
+
+`RunSecond` exists to dodge collisions — e.g. a job reading a file at `:00` racing
+a daemon that writes it at `:00`. The example above generates:
+
+```ini
+[Timer]
+OnCalendar=*:0,5,10,15,20,25,30,35,40,45,50,55:30
+AccuracySec=1s
+```
+
+`AccuracySec=1s` is set automatically whenever `RunSecond` is used: systemd
+timers default to `AccuracySec=1min`, which would otherwise let the trigger drift
+anywhere within the minute and defeat the offset.
+
+Unrecognised keys (e.g. a typo) print a warning and are ignored; invalid values
+(`RunSecond` out of range, an illegal `TimerName`) are reported with their line
+number.
 
 ### Delete unregistered unit files
 
@@ -79,22 +138,25 @@ $ ct2stimer -f sample.crom --after docker.service
 
 ## Development
 
-Building and executing on Ubuntu 16.04 VM is easy so that macOS does not have systemd.
+Requires Go (see the version in [`go.mod`](go.mod)). Dependencies are managed with
+Go modules and downloaded automatically on first build.
 
 ```bash
-$ go get -d github.com/dtan4/ct2stimer
-$ cd $GOPATH/src/github.com/dtan4/ct2stimer
-$ vagrant up
-$ vagrant ssh
+$ git clone https://github.com/HQJaTu/ct2stimer
+$ cd ct2stimer
 
-ubuntu@ubuntu-xenial:~/src/github.com/dtan4/ct2timer$ make deps
-ubuntu@ubuntu-xenial:~/src/github.com/dtan4/ct2timer$ make
-ubuntu@ubuntu-xenial:~/src/github.com/dtan4/ct2timer$ bin/ct2stimer
+$ make          # build bin/ct2stimer
+$ make test     # go test -cover -race ./...
+$ ./bin/ct2stimer -f sample.cron --dry-run
 ```
+
+The systemd unit templates under `systemd/templates/` are embedded into the
+binary via `//go:embed`, so there is no code-generation step.
 
 ## Author
 
-Daisuke Fujita ([@dtan4](https://github.com/dtan4))
+Daisuke Fujita ([@dtan4](https://github.com/dtan4)),
+Jari Turkia ([@HQJaTu](https://github.com/HQJaTu))
 
 ## License
 

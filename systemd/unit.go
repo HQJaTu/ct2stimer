@@ -19,6 +19,10 @@ type ServiceData struct {
 type TimerData struct {
 	Name     string
 	Cronspec string
+	// AccuracySec, when non-empty, sets the timer's AccuracySec=. systemd
+	// defaults to 1min, which would mask any second-level OnCalendar offset, so
+	// it is tightened (to "1s") whenever a precise trigger second is requested.
+	AccuracySec string
 }
 
 // GenerateService generates new systemd Service
@@ -48,7 +52,7 @@ func GenerateService(name, command, after, user string) (string, error) {
 }
 
 // GenerateTimer generates new systemd Timer
-func GenerateTimer(name, cronspec string) (string, error) {
+func GenerateTimer(name, cronspec, accuracySec string) (string, error) {
 	body, err := Asset("templates/timer.tmpl")
 	if err != nil {
 		return "", errors.Wrap(err, "failed to load timer template")
@@ -62,8 +66,9 @@ func GenerateTimer(name, cronspec string) (string, error) {
 	var buf bytes.Buffer
 
 	if err := tmpl.Execute(&buf, &TimerData{
-		Name:     name,
-		Cronspec: cronspec,
+		Name:        name,
+		Cronspec:    cronspec,
+		AccuracySec: accuracySec,
 	}); err != nil {
 		return "", errors.Wrap(err, "failed to dispatch values in timer template")
 	}

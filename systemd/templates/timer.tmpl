@@ -2,4 +2,8 @@
 Description={{ .Name }} timer unit
 
 [Timer]
-OnCalendar={{ .Cronspec }}
+OnCalendar={{ .Cronspec }}{{ if .AccuracySec }}
+AccuracySec={{ .AccuracySec }}{{ end }}
+
+[Install]
+WantedBy=timers.target
